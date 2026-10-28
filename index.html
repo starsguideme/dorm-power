@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F8FA">
+<title>宿舍电费</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px 14px 40px;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #F7F8FA; color: #1A1A1A; font-size: 15px; line-height: 1.5;
+    max-width: 520px; margin-left: auto; margin-right: auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 2px; font-weight: 600; }
+  .sub { font-size: 12px; color: #8A8F99; margin: 0 0 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 16px; border: 1px solid #EBEDF0; margin-bottom: 12px; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; min-width: 0; }
+  .label { font-size: 12px; color: #8A8F99; margin: 0 0 4px; }
+  .big { font-size: 40px; font-weight: 600; line-height: 1.05; letter-spacing: -1px; }
+  .big span { font-size: 15px; font-weight: 400; color: #8A8F99; margin-left: 4px; }
+  .mid { font-size: 20px; font-weight: 600; line-height: 1.2; }
+  .mid span { font-size: 12px; font-weight: 400; color: #8A8F99; margin-left: 2px; }
+  .banner { border-radius: 12px; padding: 12px 14px; font-size: 13px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+  .b-safe { background: #E8F6EF; color: #0F6E56; }
+  .b-warn { background: #FDF3E3; color: #8A5B0B; }
+  .b-danger { background: #FDECEC; color: #A32D2D; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .b-safe .dot { background: #1D9E75; }
+  .b-warn .dot { background: #EF9F27; }
+  .b-danger .dot { background: #E24B4A; }
+  button { font-family: inherit; font-size: 15px; border-radius: 12px; border: 1px solid #DDE1E6; background: #fff; color: #1A1A1A; padding: 13px 12px; width: 100%; cursor: pointer; }
+  button.primary { background: #1A1A1A; color: #fff; border-color: #1A1A1A; font-weight: 500; }
+  button.small { font-size: 13px; padding: 9px 10px; }
+  button:active { opacity: .75; }
+  .btns { display: flex; gap: 10px; }
+  input { font-family: inherit; font-size: 16px; width: 100%; padding: 12px; border: 1px solid #DDE1E6; border-radius: 10px; background: #fff; color: #1A1A1A; }
+  input:focus { outline: 2px solid #1A1A1A; outline-offset: -1px; }
+  .field { margin-bottom: 10px; }
+  .hint { font-size: 12px; color: #8A8F99; margin: 8px 0 0; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.item { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #F0F2F5; font-size: 14px; }
+  li.item:last-child { border-bottom: none; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 6px; flex: none; }
+  .t-read { background: #EEF3FB; color: #2B5C9B; }
+  .t-charge { background: #E8F6EF; color: #0F6E56; }
+  .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .time { font-size: 12px; color: #8A8F99; margin-left: auto; flex: none; }
+  .del { border: none; background: none; color: #C0C4CC; font-size: 18px; padding: 0 4px; width: auto; }
+  .empty { font-size: 13px; color: #8A8F99; padding: 10px 0; }
+  details summary { cursor: pointer; font-size: 13px; color: #8A8F99; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1A1A1A; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+  .toast.show { opacity: .92; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 6px; background: #EEF3FB; color: #2B5C9B; margin-left: 6px; vertical-align: 2px; }
+  .muted { color: #8A8F99; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>宿舍电费 <span class="badge" id="roleBadge">加载中</span></h1>
+<p class="sub" id="subline">—</p>
+
+<div id="loginArea" style="display:none;">
+  <div class="card">
+    <p style="font-size:15px;font-weight:500;margin:0 0 4px;">选择身份</p>
+    <p class="hint" style="margin:0 0 16px;">管理员看全部明细并可修改；舍友只看概览、可以录读数。</p>
+    <p class="label">管理员登录</p>
+    <div class="row">
+      <div style="flex:2"><input id="adminKeyInput" type="password" placeholder="管理口令"></div>
+      <div style="flex:1"><button class="primary" onclick="loginAdmin()">登录</button></div>
+    </div>
+    <p class="label" style="margin-top:16px;">舍友登录</p>
+    <div class="row">
+      <div style="flex:2"><input id="mateKeyInput" type="password" placeholder="舍友口令"></div>
+      <div style="flex:1"><button onclick="loginMate()">进入</button></div>
+    </div>
+    <p class="hint" id="mateHint">舍友口令由管理员在设置里设定；未设定时直接进入即可。</p>
+  </div>
+</div>
+
+<div id="setupArea" style="display:none;">
+  <div class="card">
+    <p style="font-size:15px;font-weight:500;margin:0 0 6px;">首次使用：设置管理口令</p>
+    <p class="hint" style="margin:0 0 12px;">设好之后，只有输入口令的人能看到明细并修改；其他人（舍友）只能看概览、可以录读数。</p>
+    <div class="row">
+      <div style="flex:2"><input id="setupKeyInput" type="password" placeholder="至少 4 位，比如学号后四位"></div>
+      <div style="flex:1"><button class="primary" onclick="setupKey()">设置</button></div>
+    </div>
+    <p class="hint">口令忘了只能由管理员重置，记牢一点。</p>
+  </div>
+</div>
+
+<div id="guestArea" style="display:none;">
+  <div id="gbanner" class="banner b-safe"><span class="dot"></span><span id="gbannerText">加载中…</span></div>
+  <div class="card">
+    <p class="label">剩余额度（约）</p>
+    <p class="big"><span id="gbalance">—</span><span>度</span></p>
+    <div class="row" style="margin-top:14px;">
+      <div><p class="label">预计还能用</p><p class="mid"><span id="gdays">—</span><span>天</span></p></div>
+      <div><p class="label">数据时间</p><p class="mid" style="font-size:14px;font-weight:400;color:#5B6068;"><span id="gtime">—</span></p></div>
+    </div>
+  </div>
+  <div class="card">
+    <p class="label" style="margin-bottom:8px;">记一次读数（在宿舍就顺手录一下）</p>
+    <div class="row">
+      <div style="flex:2"><input id="gReadInput" type="number" inputmode="decimal" step="0.1" placeholder="电表剩余电量，如 42.6"></div>
+      <div style="flex:1"><button class="primary" onclick="gAdd('reading')">读数</button></div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div style="flex:2"><input id="gChargeInput" type="number" inputmode="decimal" step="0.1" placeholder="充值度数，如 50"></div>
+      <div style="flex:1"><button onclick="gAdd('charge')">充值</button></div>
+    </div>
+    <div class="field" style="margin-top:8px;"><input id="gWhoInput" placeholder="谁记的（选填，如 张三）" maxlength="10"></div>
+    <p class="hint">录入后管理员能看到明细；你这边只会看到取整后的额度。</p>
+    <div class="btns" style="margin-top:10px;"><button class="small" onclick="logout()">切换身份</button></div>
+  </div>
+  <div class="card">
+    <p class="label" style="margin-bottom:8px;">管理员登录（输入口令）</p>
+    <div class="row">
+      <div style="flex:2"><input id="keyInput" type="password" placeholder="管理口令"></div>
+      <div style="flex:1"><button class="primary" onclick="login()">登录</button></div>
+    </div>
+    <p class="hint">口令只存在这台设备，其他人看到的仍是概览。</p>
+  </div>
+</div>
+
+<div id="ownerArea" style="display:none;">
+  <div id="keyWarn" class="banner b-danger" style="display:none;"><span class="dot"></span><span onclick="scrollToKey()" style="text-decoration:underline;cursor:pointer;">尚未设置管理口令：任何人打开都是管理员，点这里立即设置</span></div>
+  <div id="banner" class="banner b-safe"><span class="dot"></span><span id="bannerText">加载中…</span></div>
+
+  <div class="card">
+    <div class="row">
+      <div><p class="label">当前余量</p><p class="big"><span id="balance">—</span><span>度</span></p></div>
+      <div><p class="label">预计还能用</p><p class="mid"><span id="days">—</span><span>天</span></p></div>
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <div><p class="label">日均消耗</p><p class="mid"><span id="daily">—</span><span>度/天</span></p></div>
+      <div><p class="label">上次读数</p><p class="mid" style="font-size:15px;font-weight:400;color:#5B6068;"><span id="lastRead">—</span></p></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="label" style="margin-bottom:8px;">记一次读数（电表显示的剩余电量）</p>
+    <div class="row">
+      <div style="flex:2"><input id="readInput" type="number" inputmode="decimal" step="0.1" placeholder="例如 42.6"></div>
+      <div style="flex:1"><button class="primary" onclick="addReading()">记录</button></div>
+    </div>
+    <p class="hint">每周抄一次就够；满两次才能算日均。</p>
+  </div>
+
+  <div class="card">
+    <p class="label" style="margin-bottom:8px;">记一笔充值（可选）</p>
+    <div class="row">
+      <div style="flex:2"><input id="chargeInput" type="number" inputmode="decimal" step="0.1" placeholder="充了几度"></div>
+      <div style="flex:1"><button onclick="addCharge()">记录</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="label" style="margin-bottom:6px;">余量趋势（最近 10 次读数）</p>
+    <svg id="chart" viewBox="0 0 320 100" width="100%" height="100" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div class="card">
+    <p class="label" style="margin-bottom:6px;">记录（仅管理员可见）</p>
+    <ul id="list"><li class="empty">暂无记录</li></ul>
+  </div>
+
+  <div class="card">
+    <p class="label" style="margin-bottom:8px;">设置</p>
+    <div class="field"><input id="roomInput" placeholder="房间号，例如 19#-411" onblur="saveSettings()"></div>
+    <div class="field"><input id="thrInput" type="number" inputmode="decimal" placeholder="告警阈值（度）" onblur="saveSettings()"></div>
+    <div class="field"><input id="tokInput" placeholder="PushPlus token（推送用，可后填）" onblur="saveSettings()"></div>
+    <p class="hint">每晚 23:55 自动推一条微信：余量、日均、还能用几天。</p>
+    <div class="btns" style="margin-top:10px;">
+      <button class="small" onclick="testPush()">发送测试推送</button>
+      <button class="small" onclick="copyLink()">复制分享链接</button>
+    </div>
+    <p class="label" style="margin:14px 0 6px;">管理口令</p>
+    <div class="row">
+      <div style="flex:2"><input id="newKeyInput" type="password" placeholder="设置/修改口令（至少 4 位）"></div>
+      <div style="flex:1"><button class="small" onclick="changeKey()">保存口令</button></div>
+    </div>
+    <p class="label" style="margin:14px 0 6px;">舍友口令（录入前需输入，留空则不需要）</p>
+    <div class="row">
+      <div style="flex:2"><input id="guestKeyInput" type="text" placeholder="4 位数字，如 4114"></div>
+      <div style="flex:1"><button class="small" onclick="setGuestKey()">保存</button></div>
+    </div>
+    <div class="btns" style="margin-top:10px;">
+      <button class="small" onclick="resetAll()">清空所有记录</button>
+      <button class="small" onclick="logout()">切换身份</button>
+    </div>
+    <div class="btns" style="margin-top:10px;">
+      <button class="small" onclick="toggleQR()">显示/隐藏二维码</button>
+    </div>
+    <div id="qrBox" style="display:none; text-align:center; margin-top:12px;">
+      <div id="qrcode" style="display:inline-block;"></div>
+      <p class="hint">截图存手机，或让舍友直接扫。长按二维码可保存到相册。</p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let S = null;
+let KEY = '';
+let GUESTKEY = '';
+
+function toast(t) {
+  const el = document.getElementById('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+async function api(path, method, body) {
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (KEY) headers['x-owner-key'] = KEY;
+  if (GUESTKEY) headers['x-guest-key'] = GUESTKEY;
+  const res = await fetch(path, {
+    method: method || 'GET',
+    headers: headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return res.json();
+}
+
+function showOnly(id) {
+  ['setupArea', 'loginArea', 'guestArea', 'ownerArea'].forEach(function (x) {
+    const el = document.getElementById(x);
+    if (el) el.style.display = (x === id) ? 'block' : 'none';
+  });
+}
+
+function showLogin() {
+  showOnly('loginArea');
+  document.getElementById('roleBadge').textContent = '未登录';
+  document.getElementById('subline').textContent = '请选择管理员或舍友身份';
+}
+
+function showOwner() {
+  showOnly('ownerArea');
+  document.getElementById('roleBadge').textContent = '管理员';
+  document.getElementById('subline').textContent = '完整数据 + 录入权限 · 舍友看到的是概览';
+}
+
+function showGuest() {
+  showOnly('guestArea');
+  document.getElementById('roleBadge').textContent = '舍友视图';
+  document.getElementById('subline').textContent = '只显示概览，取整后的剩余额度';
+}
+
+async function refresh(pre) {
+  let d;
+  try { d = pre || await api('/api/state'); }
+  catch (e) {
+    showGuest();
+    const kf = document.getElementById('gKeyField');
+    if (kf) kf.style.display = (d.needGuestKey && !GUESTKEY) ? 'block' : 'none';
+    const b = document.getElementById('gbanner'), t = document.getElementById('gbannerText');
+    b.className = 'banner b-warn';
+    t.innerHTML = '加载失败，点这里重试';
+    t.onclick = function () { t.onclick = null; refresh(null); };
+    document.getElementById('roleBadge').textContent = '离线';
+    document.getElementById('subline').textContent = '网络或接口异常，数据未取到';
+    return;
+  }
+
+  if (d.scope === 'setup') {
+    showOnly('setupArea');
+    document.getElementById('roleBadge').textContent = '未初始化';
+    document.getElementById('subline').textContent = '先设置管理口令，再发链接给舍友';
+    return;
+  }
+
+  document.getElementById('setupArea').style.display = 'none';
+
+  if (d.scope === 'guest') {
+    if (d.needGuestKey && !GUESTKEY) { showLogin(); return; }
+    showGuest();
+    document.getElementById('gbalance').textContent = d.balance === null ? '—' : d.balance;
+    document.getElementById('gdays').textContent = d.daysLeft === null ? '—' : d.daysLeft;
+    document.getElementById('gtime').textContent = d.updatedAt ? new Date(d.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const b = document.getElementById('gbanner'), t = document.getElementById('gbannerText');
+    b.className = 'banner';
+    if (d.status === 'unknown') { b.classList.add('b-safe'); t.textContent = '还没有读数'; }
+    else if (d.status === 'low') { b.classList.add('b-danger'); t.textContent = '余量不多了，需要充值'; }
+    else if (d.status === 'soon') { b.classList.add('b-warn'); t.textContent = '大概一周内用完'; }
+    else { b.classList.add('b-safe'); t.textContent = '目前够用'; }
+    return;
+  }
+
+  showOwner();
+  S = d;
+  const st = S.stats, thr = Number(S.threshold) || 15;
+  document.getElementById('balance').textContent = st ? st.balance.toFixed(1) : '—';
+  document.getElementById('daily').textContent = st && st.daily ? st.daily.toFixed(2) : '—';
+  document.getElementById('days').textContent = st && st.daysLeft ? (st.daysLeft >= 100 ? '99+' : st.daysLeft.toFixed(1)) : '—';
+  document.getElementById('lastRead').textContent = st ? new Date(st.lastTs).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  const b = document.getElementById('banner'), t = document.getElementById('bannerText');
+  b.className = 'banner';
+  if (!st) { b.classList.add('b-safe'); t.textContent = '还没有读数，先记一次吧'; }
+  else if (st.balance <= thr) { b.classList.add('b-danger'); t.textContent = '余量 ' + st.balance.toFixed(1) + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
+  else if (st.daysLeft && st.daysLeft <= 7) { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + st.daysLeft.toFixed(1) + ' 天，建议这周充值'; }
+  else { b.classList.add('b-safe'); t.textContent = st.daysLeft ? '状态正常，大约还能用 ' + (st.daysLeft >= 100 ? '99+' : st.daysLeft.toFixed(1)) + ' 天' : '已记录 1 次读数，再记一次就能预测剩余天数'; }
+
+  const list = document.getElementById('list'), rs = S.records || [];
+  if (!rs.length) list.innerHTML = '<li class="empty">暂无记录</li>';
+  else list.innerHTML = rs.map(r => {
+    const d2 = new Date(r.ts);
+    const time = d2.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const cls = r.type === 'reading' ? 't-read' : 't-charge';
+    const txt = r.type === 'reading' ? '读数' : '充值';
+    return '<li class="item"><span class="tag ' + cls + '">' + txt + '</span><span class="val">' + r.value.toFixed(1) + '</span><span class="time">' + time + '</span><button class="del" onclick="delRec(' + r.id + ')">×</button></li>';
+  }).join('');
+
+  drawChart();
+  document.getElementById('keyWarn').style.display = S.hasKey ? 'none' : 'flex';
+  document.getElementById('roomInput').value = S.room || '';
+  document.getElementById('thrInput').value = S.threshold || 15;
+  document.getElementById('subline').textContent = S.hasToken
+    ? '完整数据 · 每晚 23:55 微信推送已开启'
+    : '完整数据 · 舍友看到的是概览（推送未配置）';
+}
+
+function drawChart() {
+  const svg = document.getElementById('chart');
+  const rs = (S && S.records ? S.records : []).filter(r => r.type === 'reading').slice(0, 10).reverse();
+  if (rs.length < 2) { svg.innerHTML = '<text x="160" y="55" text-anchor="middle" font-size="11" fill="#A8ADB6">至少两次读数后显示趋势</text>'; return; }
+  const W = 320, H = 100, P = 10;
+  const vs = rs.map(r => r.value);
+  const max = Math.max.apply(null, vs), min = Math.min.apply(null, vs);
+  const span = (max - min) || 1;
+  const pts = rs.map((r, i) => [P + i * ((W - P * 2) / (rs.length - 1)), P + (1 - (r.value - min) / span) * (H - P * 2)]);
+  const line = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const area = line + ' ' + pts[pts.length - 1][0].toFixed(1) + ',' + (H - P) + ' ' + pts[0][0].toFixed(1) + ',' + (H - P);
+  svg.innerHTML = '<polygon points="' + area + '" fill="#EEF3FB"></polygon>'
+    + '<polyline points="' + line + '" fill="none" stroke="#2B5C9B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>'
+    + pts.map(p => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.5" fill="#2B5C9B"></circle>').join('');
+}
+
+async function setupKey() {
+  const k = document.getElementById('setupKeyInput').value.trim();
+  if (k.length < 4) return toast('口令至少 4 位');
+  const r = await api('/api/login', 'POST', { key: k });
+  if (r.ok) {
+    KEY = k;
+    try { localStorage.setItem('dormKey', k); } catch (e) {}
+    toast('口令已设置，你是管理员');
+    refresh(null);
+  } else toast(r.msg || '失败');
+}
+
+async function gAdd(type) {
+  const isRead = type === 'reading';
+  const input = document.getElementById(isRead ? 'gReadInput' : 'gChargeInput');
+  const v = parseFloat(input.value);
+  if (!isFinite(v) || v < 0 || (!isRead && v <= 0)) return toast('请输入有效数值');
+  const who = (document.getElementById('gWhoInput').value || '').trim();
+  try { localStorage.setItem('dormWho', who); } catch (e) {}
+  const r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', { value: v, who: who });
+  if (r.ok) {
+    input.value = '';
+    toast(isRead ? '已记录读数' : '已记录充值');
+    refresh(null);
+  } else toast(r.msg || '失败');
+}
+
+async function loginAdmin() {
+  const k = document.getElementById('adminKeyInput').value.trim();
+  if (!k) return toast('请输入管理口令');
+  const r = await api('/api/login', 'POST', { key: k });
+  if (r.ok || r.msg === '已设置管理口令') {
+    KEY = k;
+    try { localStorage.setItem('dormKey', k); } catch (e) {}
+    toast('管理员已登录');
+    refresh(null);
+  } else toast(r.msg || '口令不对');
+}
+
+async function loginMate() {
+  const k = document.getElementById('mateKeyInput').value.trim();
+  const r = await api('/api/guest-login', 'POST', { key: k });
+  if (r.ok) {
+    GUESTKEY = k;
+    KEY = '';
+    try {
+      localStorage.setItem('dormGuestKey', k);
+      localStorage.removeItem('dormKey');
+    } catch (e) {}
+    toast(r.open ? '已进入（未设舍友口令）' : '舍友已进入');
+    refresh(null);
+  } else toast(r.msg || '舍友口令不对');
+}
+
+async function login() {
+  const k = document.getElementById('keyInput').value.trim();
+  if (!k) return toast('请输入口令');
+  const r = await api('/api/login', 'POST', { key: k });
+  if (r.ok) {
+    KEY = k;
+    try { localStorage.setItem('dormKey', k); } catch (e) {}
+    toast(r.msg || '登录成功');
+    refresh();
+  } else toast(r.msg || '口令不对');
+}
+
+function logout() {
+  KEY = '';
+  GUESTKEY = '';
+  try {
+    localStorage.removeItem('dormKey');
+    localStorage.removeItem('dormGuestKey');
+  } catch (e) {}
+  showLogin();
+  toast('已退出，请重新选择身份');
+}
+
+async function addReading() {
+  const el = document.getElementById('readInput');
+  const v = parseFloat(el.value);
+  if (!isFinite(v) || v < 0) return toast('请输入有效读数');
+  const r = await api('/api/reading', 'POST', { value: v });
+  if (r.ok) { el.value = ''; toast('已记录'); refresh(); } else toast(r.msg || '失败');
+}
+
+async function addCharge() {
+  const el = document.getElementById('chargeInput');
+  const v = parseFloat(el.value);
+  if (!isFinite(v) || v <= 0) return toast('请输入有效度数');
+  const r = await api('/api/charge', 'POST', { value: v });
+  if (r.ok) { el.value = ''; toast('已记录'); refresh(); } else toast(r.msg || '失败');
+}
+
+async function delRec(id) {
+  const r = await api('/api/record/' + id, 'DELETE');
+  if (r.ok) { toast('已删除'); refresh(); } else toast(r.msg || '失败');
+}
+
+async function saveSettings() {
+  const room = document.getElementById('roomInput').value.trim();
+  const threshold = parseFloat(document.getElementById('thrInput').value);
+  const pushToken = document.getElementById('tokInput').value.trim();
+  const body = { room: room, pushToken: pushToken };
+  if (isFinite(threshold) && threshold > 0) body.threshold = threshold;
+  await api('/api/settings', 'POST', body);
+  refresh(); toast('设置已保存');
+}
+
+async function testPush() {
+  const tok = document.getElementById('tokInput').value.trim();
+  if (tok) await api('/api/settings', 'POST', { pushToken: tok });
+  toast('发送中…');
+  const r = await api('/api/push-test', 'POST');
+  toast(r.ok ? '已发送，去微信看' : ('失败：' + (r.msg || '未知')));
+  refresh();
+}
+
+async function resetAll() {
+  if (!confirm('清空所有读数与充值记录？房间号和 token 会保留。')) return;
+  const r = await api('/api/reset', 'POST');
+  if (r.ok) { toast('已清空'); refresh(); } else toast('失败');
+}
+
+async function setGuestKey() {
+  const k = document.getElementById('guestKeyInput').value.trim();
+  const r = await api('/api/set-guest-key', 'POST', { key: k });
+  if (r.ok) { toast(k ? '舍友口令已设置' : '已取消舍友口令'); refresh(); } else toast(r.msg || '失败');
+}
+
+async function changeKey() {
+  const k = document.getElementById('newKeyInput').value.trim();
+  if (k.length < 4) return toast('口令至少 4 位');
+  const r = await api('/api/change-key', 'POST', { key: k });
+  if (r.ok) {
+    KEY = k;
+    try { localStorage.setItem('dormKey', k); } catch (e) {}
+    document.getElementById('newKeyInput').value = '';
+    toast('口令已更新');
+    refresh();
+  } else toast(r.msg || '失败');
+}
+
+function saveGuestKey() {
+  const v = document.getElementById('gKeyInput').value.trim();
+  GUESTKEY = v;
+  try { localStorage.setItem('dormGuestKey', v); } catch (e) {}
+  if (v) toast('舍友口令已记住');
+}
+
+function scrollToKey() {
+  const el = document.getElementById('newKeyInput');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.focus();
+}
+
+function toggleQR() {
+  const box = document.getElementById('qrBox');
+  if (box.style.display === 'block') { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  if (document.getElementById('qrcode').childElementCount) return;
+  const url = location.origin + location.pathname + location.search;
+  if (!window.QRCode) {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = function () { drawQR(url); };
+    s.onerror = function () { document.getElementById('qrcode').innerHTML = '<p class="hint">二维码库加载失败，请用「复制分享链接」</p>'; };
+    document.body.appendChild(s);
+  } else drawQR(url);
+}
+
+function drawQR(url) {
+  new QRCode(document.getElementById('qrcode'), { text: url, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+}
+
+function copyLink() {
+  const url = location.origin + location.pathname + location.search;
+  if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast('已复制，发给舍友即可'); }, function () { toast(url); });
+  else toast(url);
+}
+
+try {
+  KEY = localStorage.getItem('dormKey') || '';
+  GUESTKEY = localStorage.getItem('dormGuestKey') || '';
+  const w = localStorage.getItem('dormWho');
+  if (w) { const el = document.getElementById('gWhoInput'); if (el) el.value = w; }
+} catch (e) {}
+refresh(window.__BOOT__ || null);
+setInterval(function () { refresh(null); }, 60000);
+</script>
+</body>
+</html>

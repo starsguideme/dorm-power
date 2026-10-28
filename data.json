@@ -1,0 +1,16 @@
+{
+  "room": "411",
+  "threshold": 15,
+  "pushToken": "",
+  "lastPushDate": "",
+  "ownerKey": "",
+  "records": [
+    {
+      "id": 1793179038266,
+      "type": "reading",
+      "value": 15,
+      "ts": 1793179037899,
+      "who": ""
+    }
+  ]
+}
