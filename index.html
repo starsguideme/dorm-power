@@ -201,6 +201,12 @@
       <div style="flex:2"><input id="guestKeyInput" type="text" placeholder="4 位数字，如 4114"></div>
       <div style="flex:1"><button class="small" onclick="setGuestKey()">保存</button></div>
     </div>
+    <p class="label" style="margin:14px 0 6px;">数据备份</p>
+    <div class="btns">
+      <button class="small" onclick="exportData('csv')">导出 CSV</button>
+      <button class="small" onclick="exportData('json')">导出 JSON</button>
+    </div>
+    <p class="hint" style="margin-top:6px;">JSON 含口令和推送 token，用来换机/重建后恢复，别外传；CSV 只有记录，给 Excel 看。</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="resetAll()">清空所有记录</button>
       <button class="small" onclick="logout()">切换身份</button>
@@ -538,6 +544,35 @@ async function saveSettings() {
   if (isFinite(threshold) && threshold > 0) body.threshold = threshold;
   await api('/api/settings', 'POST', body);
   refresh(); toast('设置已保存');
+}
+
+// 导出走原生 fetch 拿 blob，不能复用 api()——它会把响应当 JSON 解析
+async function exportData(fmt) {
+  if (!KEY) return toast('请先用管理口令登录');
+  try {
+    const res = await fetch('/api/export?format=' + encodeURIComponent(fmt), {
+      headers: { 'x-owner-key': KEY }
+    });
+    if (!res.ok) {
+      let msg = '导出失败（' + res.status + '）';
+      try { const j = await res.json(); if (j && j.msg) msg = j.msg; } catch (e) {}
+      return toast(msg);
+    }
+    const blob = await res.blob();
+    const d = new Date();
+    const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = 'dorm-power-' + stamp + (fmt === 'csv' ? '.csv' : '.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(href); }, 1000);
+    toast('已导出 ' + fmt.toUpperCase());
+  } catch (e) {
+    toast('导出失败：' + e.message);
+  }
 }
 
 async function testPush() {
