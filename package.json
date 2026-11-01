@@ -1,6 +1,6 @@
 {
   "name": "dorm-power",
-  "version": "1.0.0",
+  "version": "1.2.5",
   "private": true,
   "description": "宿舍电费余量记录与提醒",
   "main": "server.js",

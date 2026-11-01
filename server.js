@@ -8,6 +8,13 @@ const zlib = require('zlib');
 const https = require('https');
 
 const PORT = process.env.PORT || 3000;
+// 版本号唯一来源 = package.json；读不到就 unknown，不影响启动
+const APP_VERSION = (function () {
+  try { return require('./package.json').version || 'unknown'; }
+  catch (e) { return 'unknown'; }
+})();
+// 启动时刻：发布后对一下这个值就知道容器到底重启了没有（没变 = 还是旧进程）
+const STARTED_AT = Date.now();
 // DATA_FILE 允许用环境变量指定（平台挂了持久盘时指过去）；默认仍在代码目录
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 // 同目录备份：只防「误覆盖」不防「容器重建」，所以还必须能导出到容器外
@@ -36,7 +43,7 @@ function bjDateStr(ts) { return bjParts(ts).date; }
 function todayStr() { return bjDateStr(Date.now()); }
 
 function defaultData() {
-  return { room: '', threshold: 15, people: 6, pushToken: '', lastPushDate: '', lastPush: null, cronSecret: '', ownerKey: '', guestKey: '', records: [], logs: [] };
+  return { room: '', threshold: 15, people: 6, pushToken: '', lastPushDate: '', lastPush: null, cronSecret: '', openToken: '', ownerKey: '', guestKey: '', records: [], logs: [] };
 }
 
 function loadData() {
@@ -94,6 +101,7 @@ if (!data.records.length && fs.existsSync(BAK_FILE)) {
 }
 
 if (!data.cronSecret) { data.cronSecret = crypto.randomBytes(8).toString('hex'); saveData(); }
+if (!data.openToken) { data.openToken = crypto.randomBytes(16).toString('hex'); saveData(); }
 
 const LOG_MAX = 300;
 function addLog(action, detail, who, ok) {
@@ -153,11 +161,14 @@ function statusOf(s) {
   return 'ok';
 }
 
-function publicState() {
+function publicState(role) {
   const s = stats();
   const e = estimate();
+  const scope = role === 'mate' ? 'mate' : 'guest';
   return {
-    scope: 'guest',
+    scope: scope,
+    canWrite: scope === 'mate',
+    version: APP_VERSION,
     room: data.room || '',
     needGuestKey: !!data.guestKey,
     status: statusOf(s),
@@ -175,11 +186,13 @@ function ownerState() {
   const e = estimate();
   return {
     scope: 'owner',
+    version: APP_VERSION,
     room: data.room,
     threshold: data.threshold,
     people: data.people || 6,
     hasToken: !!data.pushToken,
     cronSecret: data.cronSecret || '',
+    openToken: data.openToken || '',
     lastPush: data.lastPush || null,
     serverTz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     bjNow: bjParts(Date.now()),
@@ -318,7 +331,21 @@ setInterval(selfWake, 45 * 1000);
 setInterval(tickPush, 20 * 1000);
 setTimeout(tickPush, 3 * 1000);
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+// 静态白名单：既是 MIME 表，也是「允许对外发的文件类型」。不含 .json —— data.json 绝不能走静态通道
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2'
+};
+// 静态文件根目录：应用根目录只放源码与数据，一律不对外
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 
 let htmlTemplate = null;
@@ -385,6 +412,17 @@ function guestOk(req) {
   return crypto.timingSafeEqual(a, b);
 }
 
+// 舍友 ≠ 访客：必须「服务端设了舍友口令」且「请求带对了」，才算舍友（可录数据）。
+// 没设舍友口令时一律按访客处理，否则访客等于自动获得舍友写权限。
+function mateOk(req, url) {
+  if (!data.guestKey) return false;
+  const k = req.headers['x-guest-key'] || (url ? url.searchParams.get('gkey') : '') || '';
+  const a = Buffer.from(String(k));
+  const b = Buffer.from(String(data.guestKey));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 function isOwner(req, url) {
   if (!data.ownerKey) return false;
   const h = req.headers['x-owner-key'];
@@ -405,13 +443,25 @@ const server = http.createServer(async (req, res) => {
     }
   } catch (e) {}
 
+  // 版本探针：不需要鉴权（只暴露版本与启动时间），发布后 curl 一下就知道新版本有没有起来
+  if (url.pathname === '/api/version' && req.method === 'GET') {
+    const p0 = bjParts(STARTED_AT);
+    return sendJSON(res, 200, {
+      version: APP_VERSION,
+      startedAt: STARTED_AT,
+      startedAtText: p0.date + ' ' + String(p0.hh).padStart(2, '0') + ':' + String(p0.mm).padStart(2, '0'),
+      uptimeSec: Math.floor((Date.now() - STARTED_AT) / 1000),
+      node: process.version
+    });
+  }
+
   if (url.pathname === '/api/state' && req.method === 'GET') {
     if (!data.ownerKey) {
       const g = publicState();
       g.scope = 'setup';
       return sendJSON(res, 200, g);
     }
-    return sendJSON(res, 200, isOwner(req, url) ? ownerState() : publicState());
+    return sendJSON(res, 200, isOwner(req, url) ? ownerState() : publicState(mateOk(req, url) ? 'mate' : 'guest'));
   }
 
   if (url.pathname === '/api/login' && req.method === 'POST') {
@@ -444,9 +494,63 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 428, { ok: false, msg: '请先设置管理口令' });
   }
 
-  const needOwner = ['/api/settings', '/api/push-test', '/api/push-now', '/api/reset', '/api/reading', '/api/charge'];
+  let rlWindow = 0, rlCount = 0;
+  function rateOk() {
+    const now = Date.now();
+    if (now - rlWindow > 60000) { rlWindow = now; rlCount = 0; }
+    rlCount += 1;
+    return rlCount <= 60;
+  }
+
+  if (url.pathname === '/api/open/summary' && req.method === 'GET') {
+    const tk = url.searchParams.get('token') || req.headers['x-open-token'] || '';
+    if (!data.openToken || tk !== data.openToken) {
+      addLog('AI查询', 'token 校验失败'); saveData();
+      return sendJSON(res, 403, { ok: false, msg: 'token 无效' });
+    }
+    if (!rateOk()) return sendJSON(res, 429, { ok: false, msg: '请求过于频繁（限 60 次/分钟）' });
+    const e = estimate();
+    const st = stats();
+    if (!st) return sendJSON(res, 200, { ok: true, room: data.room || '', hasData: false, msg: '还没有录入读数' });
+    const cut = e && e.cutAt ? bjDateStr(e.cutAt) : null;
+    addLog('AI查询', '只读查询成功'); saveData();
+    return sendJSON(res, 200, {
+      ok: true,
+      room: data.room || '',
+      hasData: true,
+      balance: Number((e ? e.est : st.last.value).toFixed(1)),
+      unit: '度',
+      daily: st.daily ? Number(st.daily.toFixed(2)) : null,
+      daysLeft: e && e.daysLeft !== null ? Number(e.daysLeft.toFixed(1)) : null,
+      cutDate: cut,
+      threshold: Number(data.threshold) || 15,
+      status: statusOf(st),
+      lastReadAt: bjDateStr(st.last.ts),
+      staleDays: e ? Math.floor(e.elapsed) : 0,
+      people: Number(data.people) || 6,
+      costPerDay: st.daily ? Number((st.daily * 0.55).toFixed(1)) : null
+    });
+  }
+
+  if (url.pathname === '/api/regen-open-token' && req.method === 'POST') {
+    if (!isOwner(req, url)) return sendJSON(res, 403, { ok: false, msg: '只有管理员能重置' });
+    data.openToken = crypto.randomBytes(16).toString('hex');
+    addLog('开放接口', 'token 已重置');
+    saveData();
+    return sendJSON(res, 200, { ok: true, token: data.openToken });
+  }
+
+  const needOwner = ['/api/settings', '/api/push-test', '/api/push-now', '/api/reset'];
   if (needOwner.indexOf(url.pathname) >= 0 && !isOwner(req, url)) {
-    return sendJSON(res, 403, { ok: false, msg: '只有管理员能改数据' });
+    return sendJSON(res, 403, { ok: false, msg: '只有管理员能改设置' });
+  }
+  // 录数据：管理员，或带对舍友口令的舍友。访客（无口令 / 口令不对）只读。
+  const needWriter = ['/api/reading', '/api/charge'];
+  if (needWriter.indexOf(url.pathname) >= 0 && !isOwner(req, url) && !mateOk(req, url)) {
+    return sendJSON(res, 403, {
+      ok: false,
+      msg: data.guestKey ? '需要管理员口令或舍友口令' : '舍友口令未设置，录数据请用管理员口令（设置里可给舍友开录入口令）'
+    });
   }
   if (url.pathname.indexOf('/api/record/') === 0 && req.method === 'DELETE' && !isOwner(req, url)) {
     return sendJSON(res, 403, { ok: false, msg: '只有管理员能删除记录' });
@@ -455,7 +559,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/guest-login' && req.method === 'POST') {
     const b = await readBody(req);
     const k = String(b.key || '').trim();
-    if (!data.guestKey) { addLog('登录', '舍友登录（未设口令）'); saveData(); return sendJSON(res, 200, { ok: true, open: true }); }
+    if (!data.guestKey) { addLog('登录', '访客进入（未设舍友口令，只读）'); saveData(); return sendJSON(res, 200, { ok: true, open: true }); }
     if (guestOk({ headers: { 'x-guest-key': k } })) { addLog('登录', '舍友登录'); saveData(); return sendJSON(res, 200, { ok: true }); }
     return sendJSON(res, 401, { ok: false, msg: '舍友口令不对' });
   }
@@ -670,19 +774,30 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
-    const boot = isOwner(req, url) ? ownerState() : publicState();
+    const boot = isOwner(req, url) ? ownerState() : publicState(mateOk(req, url) ? 'mate' : 'guest');
     const tag = '<script>window.__BOOT__=' + JSON.stringify(boot).replace(/</g, '\\u003c') + ';</script>';
     const html = (htmlTemplate || '').replace('<script>', tag + '<script>');
     return sendCompressed(req, res, 200, 'text/html; charset=utf-8', html, 30);
   }
 
-  let filePath = path.join(__dirname, path.normalize(url.pathname).replace(/^(\.\.[\/\\])+/, ''));
-  if (filePath.indexOf(__dirname) !== 0) return sendJSON(res, 403, { ok: false });
+  // 静态资源只认 public/ 目录 + 白名单扩展名。
+  // 旧实现是 path.join(__dirname, 用户路径) 直接读盘，等于把整个应用目录挂成了下载站：
+  // /data.json 能把 ownerKey / guestKey / pushToken / cronSecret 明文拖走，/server.js 能拖走源码。
+  // 页面本身（index.html）是自包含的（样式脚本都内联），根目录不需要再暴露任何文件。
+  let relPath = url.pathname;
+  try { relPath = decodeURIComponent(relPath); } catch (e) { relPath = ''; }
+  const safeRel = path.normalize(relPath).replace(/^(\.{2}[\/\\])+/, '').replace(/^[\/\\]+/, '');
+  const filePath = path.join(PUBLIC_DIR, safeRel);
+  const ext = path.extname(filePath).toLowerCase();
+  if (filePath.indexOf(PUBLIC_DIR) !== 0 || !MIME[ext]) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Not found');
+  }
   fs.readFile(filePath, (err, buf) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Not found'); }
-    const type = MIME[path.extname(filePath)] || 'application/octet-stream';
-    sendCompressed(req, res, 200, type, buf, 300);
+    sendCompressed(req, res, 200, MIME[ext], buf, 300);
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log('dorm-power listening on ' + PORT));
+server.listen(PORT, '0.0.0.0', () => console.log('dorm-power v' + APP_VERSION + ' listening on ' + PORT
+  + ' (started ' + new Date(STARTED_AT).toISOString() + ')'));

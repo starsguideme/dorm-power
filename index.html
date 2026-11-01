@@ -65,7 +65,7 @@
 <div id="loginArea" style="display:none;">
   <div class="card">
     <p style="font-size:15px;font-weight:500;margin:0 0 4px;">选择身份</p>
-    <p class="hint" style="margin:0 0 16px;">管理员看全部明细并可修改；舍友只看概览、可以录读数。</p>
+    <p class="hint" style="margin:0 0 16px;">管理员看全部明细、改设置；舍友看概览、可录读数；访客只看概览。</p>
     <p class="label">管理员登录</p>
     <div class="row">
       <div style="flex:2"><input id="adminKeyInput" type="password" placeholder="管理口令"></div>
@@ -76,14 +76,14 @@
       <div style="flex:2"><input id="mateKeyInput" type="password" placeholder="舍友口令"></div>
       <div style="flex:1"><button onclick="loginMate()">进入</button></div>
     </div>
-    <p class="hint" id="mateHint">舍友口令由管理员在设置里设定；未设定时直接进入即可。</p>
+    <p class="hint" id="mateHint">舍友口令由管理员在「设置」里设定。未设定时进入的是访客视图（只读），不能录数据。</p>
   </div>
 </div>
 
 <div id="setupArea" style="display:none;">
   <div class="card">
     <p style="font-size:15px;font-weight:500;margin:0 0 6px;">首次使用：设置管理口令</p>
-    <p class="hint" style="margin:0 0 12px;">设好之后，只有输入口令的人能看到明细并修改；其他人（舍友）只能看概览、可以录读数。</p>
+    <p class="hint" style="margin:0 0 12px;">设好之后，只有输入口令的人能看到明细并修改。发给舍友前，建议在「设置」里再设一个舍友口令，这样舍友能录读数；没有舍友口令的链接打开只是访客（只读）。</p>
     <div class="row">
       <div style="flex:2"><input id="setupKeyInput" type="password" placeholder="至少 4 位，比如学号后四位"></div>
       <div style="flex:1"><button class="primary" onclick="setupKey()">设置</button></div>
@@ -103,16 +103,39 @@
     </div>
   </div>
   <div class="card">
-    <p class="hint" style="margin:0;">当前为<b>只读视图</b>：可以看到取整后的余量与预计天数，无法录入或修改。录数据需管理员口令登录。</p>
+    <p class="hint" id="gRoleHint" style="margin:0;">—</p>
+  </div>
+
+  <div id="mateWriteCard" class="card" style="display:none;">
+    <p class="label" style="margin-bottom:8px;">记一次读数（电表显示的剩余电量）</p>
+    <div class="row">
+      <div style="flex:2"><input id="mateReadInput" type="number" inputmode="decimal" step="0.1" placeholder="例如 42.6"></div>
+      <div style="flex:1"><button class="primary" onclick="addMateReading()">记录</button></div>
+    </div>
+    <div class="field" style="margin-top:8px;"><input id="mateReadDate" type="date"></div>
+    <p class="hint">日期填「这个读数对应哪天」，宿管每 7 天更新一次，照她的表填。满两次才能算日均。</p>
+    <p class="label" style="margin:14px 0 8px;">记一笔充值（仅记账）</p>
+    <div class="row">
+      <div style="flex:2"><input id="mateChargeInput" type="number" inputmode="decimal" step="0.1" placeholder="充了几度"></div>
+      <div style="flex:1"><button onclick="addMateCharge()">记录</button></div>
+    </div>
   </div>
 
   <div class="card">
-    <p class="label" style="margin-bottom:8px;">管理员登录</p>
+    <div id="mateLoginBlock">
+      <p class="label" style="margin-bottom:8px;">舍友登录</p>
+      <div class="row">
+        <div style="flex:2"><input id="mateLoginInput" type="password" placeholder="舍友口令"></div>
+        <div style="flex:1"><button onclick="loginMateFromGuest()">进入</button></div>
+      </div>
+      <p class="hint" id="mateLoginHint">舍友凭口令进入后可以录读数、记充值，但看不到明细和设置。</p>
+    </div>
+    <p class="label" style="margin:14px 0 8px;">管理员登录</p>
     <div class="row">
       <div style="flex:2"><input id="keyInput" type="password" placeholder="管理口令"></div>
       <div style="flex:1"><button onclick="login()">登录</button></div>
     </div>
-    <p class="hint">只有管理员能看明细、改设置。舍友与访客只能看概览。</p>
+    <p class="hint" id="loginHintLine">管理员：能看明细、改设置。舍友：能录读数。访客：只能看概览。</p>
   </div>
 </div>
 
@@ -183,11 +206,21 @@
     <p class="hint" id="pushStatus" style="margin:0;">—</p>
     <p class="label" style="margin:14px 0 6px;">外部定时链接（推荐：交给 cron-job.org 每天 23:55 调用，最稳）</p>
     <input id="cronUrl" readonly onclick="this.select()" style="font-size:12px;">
+    <p class="label" style="margin:14px 0 6px;">开放接口（给 Dify / MCP 工具用，只读）</p>
+    <input id="openUrl" readonly onclick="this.select()" style="font-size:11px;">
+    <p class="hint">只返回余量、日均、预计天数与断电日，不含明细；限 60 次/分钟，调用会记入事件日志。</p>
+    <div class="btns" style="margin-top:8px;"><button class="small" onclick="regenOpenToken()">重置开放 token</button></div>
     <p class="label" style="margin:14px 0 6px;">管理口令</p>
     <div class="row">
       <div style="flex:2"><input id="newKeyInput" type="password" placeholder="设置/修改口令（至少 4 位）"></div>
       <div style="flex:1"><button class="small" onclick="changeKey()">保存口令</button></div>
     </div>
+    <p class="label" style="margin:14px 0 6px;">舍友口令（舍友凭它录读数，看不到明细）</p>
+    <div class="row">
+      <div style="flex:2"><input id="guestKeyInput" type="password" placeholder="留空保存 = 取消舍友口令"></div>
+      <div style="flex:1"><button class="small" onclick="setGuestKey()">保存</button></div>
+    </div>
+    <p class="hint" id="guestKeyHint">—</p>
     <p class="label" style="margin:14px 0 6px;">数据备份</p>
     <div class="btns">
       <button class="small" onclick="exportData('csv')">导出 CSV</button>
@@ -198,6 +231,7 @@
       <button class="small" onclick="resetAll()">清空所有记录</button>
       <button class="small" onclick="logout()">切换身份</button>
     </div>
+    <p class="hint" id="verLine" style="margin-top:12px;">—</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="toggleQR()">显示/隐藏二维码</button>
     </div>
@@ -256,8 +290,18 @@ function showOwner() {
 
 function showGuest() {
   showOnly('guestArea');
-  document.getElementById('roleBadge').textContent = '舍友视图';
-  document.getElementById('subline').textContent = '只读视图 · 概览取整显示，录入需管理员登录';
+  const wc = document.getElementById('mateWriteCard');
+  if (wc) wc.style.display = 'none';
+  document.getElementById('roleBadge').textContent = '访客';
+  document.getElementById('subline').textContent = '只读视图 · 概览取整显示，录入需舍友或管理员口令';
+}
+
+function showMate() {
+  showOnly('guestArea');
+  const wc = document.getElementById('mateWriteCard');
+  if (wc) wc.style.display = 'block';
+  document.getElementById('roleBadge').textContent = '舍友';
+  document.getElementById('subline').textContent = '概览 + 录读数 · 明细与设置仍只有管理员可见';
 }
 
 async function refresh(pre) {
@@ -283,8 +327,22 @@ async function refresh(pre) {
 
   document.getElementById('setupArea').style.display = 'none';
 
-  if (d.scope === 'guest') {
-    showGuest();
+  if (d.scope === 'guest' || d.scope === 'mate') {
+    const isMate = d.scope === 'mate';
+    if (isMate) showMate(); else showGuest();
+    const rh = document.getElementById('gRoleHint');
+    if (rh) rh.innerHTML = isMate
+      ? '当前为<b>舍友视图</b>：可以录入读数与充值，但看不到明细、日均与设置。'
+      : '当前为<b>访客视图（只读）</b>：只看取整后的余量与天数，不能录入。舍友请用舍友口令进入，管理员请用管理口令登录。';
+    // 舍友登录入口：访客且服务端已设舍友口令才给（未设口令时进来也只能是访客，摆个入口反而误导）
+    const mlb = document.getElementById('mateLoginBlock');
+    if (mlb) mlb.style.display = (!isMate && d.needGuestKey) ? 'block' : 'none';
+    const lh = document.getElementById('loginHintLine');
+    if (lh) lh.textContent = (!isMate && !d.needGuestKey)
+      ? '管理员还没设舍友口令：现在打开链接的人一律是访客（只读）。要开舍友录入，去「设置 → 舍友口令」。'
+      : '管理员：能看明细、改设置。舍友：能录读数。访客：只能看概览。';
+    const mrd = document.getElementById('mateReadDate');
+    if (mrd && !mrd.value) mrd.value = new Date().toISOString().slice(0, 10);
     document.getElementById('gbalance').textContent = d.balance === null ? '—' : d.balance;
     document.getElementById('gdays').textContent = d.daysLeft === null ? '—' : d.daysLeft;
     document.getElementById('gtime').textContent = d.updatedAt
@@ -334,6 +392,8 @@ async function refresh(pre) {
     }
   }
   document.getElementById('lastRead').textContent = st ? new Date(st.lastTs).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const verEl = document.getElementById('verLine');
+  if (verEl) verEl.textContent = '当前版本 v' + (S.version || 'unknown');
 
   const b = document.getElementById('banner'), t = document.getElementById('bannerText');
   b.className = 'banner';
@@ -397,8 +457,17 @@ async function refresh(pre) {
   }
   const cu = document.getElementById('cronUrl');
   if (cu && S.cronSecret) cu.value = location.origin + '/api/cron?secret=' + S.cronSecret;
+  const ou = document.getElementById('openUrl');
+  if (ou && S.openToken) {
+    const sc = (location.search.match(/sharecode=([^&]+)/) || [])[1] || '';
+    ou.value = location.origin + '/api/open/summary?token=' + S.openToken + (sc ? '&sharecode=' + sc : '');
+  }
   const pi = document.getElementById('peopleInput');
   if (pi) pi.value = S.people || 6;
+  const gkh = document.getElementById('guestKeyHint');
+  if (gkh) gkh.textContent = S.hasGuestKey
+    ? '已设置：舍友凭口令进入后能录读数，仍看不到明细。清空输入框再保存即取消（取消后所有人变回访客，不能录数据）。'
+    : '未设置：现在打开链接的人一律是访客（只读），录不了读数。给舍友一个口令，他们才能录。';
   document.getElementById('subline').textContent = S.hasToken
     ? '完整数据 · 每晚 23:55 微信推送已开启'
     : '完整数据 · 舍友看到的是概览（推送未配置）';
@@ -444,19 +513,29 @@ async function loginAdmin() {
   } else toast(r.msg || '口令不对');
 }
 
-async function loginMate() {
-  const k = document.getElementById('mateKeyInput').value.trim();
+// 舍友登录只有一个实现，两个入口（身份选择页 / 概览页卡片）共用
+async function doMateLogin(k, inputEl) {
+  if (!k) return toast('请输入舍友口令');
   const r = await api('/api/guest-login', 'POST', { key: k });
-  if (r.ok) {
-    GUESTKEY = k;
-    KEY = '';
-    try {
-      localStorage.setItem('dormGuestKey', k);
-      localStorage.removeItem('dormKey');
-    } catch (e) {}
-    toast(r.open ? '已进入（未设舍友口令）' : '舍友已进入');
-    refresh(null);
-  } else toast(r.msg || '舍友口令不对');
+  if (!r.ok) return toast(r.msg || '舍友口令不对');
+  GUESTKEY = r.open ? '' : k;
+  KEY = '';
+  try {
+    if (r.open) localStorage.removeItem('dormGuestKey');
+    else localStorage.setItem('dormGuestKey', k);
+    localStorage.removeItem('dormKey');
+  } catch (e) {}
+  if (inputEl) inputEl.value = '';
+  toast(r.open ? '管理员还没设舍友口令，当前是访客视图（只读）' : '舍友已进入，可以录读数了');
+  refresh(null);
+}
+
+function loginMate() {
+  return doMateLogin(document.getElementById('mateKeyInput').value.trim(), null);
+}
+
+function loginMateFromGuest() {
+  return doMateLogin(document.getElementById('mateLoginInput').value.trim(), document.getElementById('mateLoginInput'));
 }
 
 async function login() {
@@ -482,11 +561,13 @@ function logout() {
   toast('已退出，请重新选择身份');
 }
 
-async function addReading() {
-  const el = document.getElementById('readInput');
+// 管理员与舍友共用同一套录入逻辑，只是输入框不同（权限由服务端判定）
+async function submitReading(inputId, dateId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
   const v = parseFloat(el.value);
   if (!isFinite(v) || v < 0) return toast('请输入有效读数');
-  const dateEl = document.getElementById('readDate');
+  const dateEl = dateId ? document.getElementById(dateId) : null;
   const payload = { value: v };
   if (dateEl && dateEl.value) payload.date = dateEl.value;
 
@@ -499,13 +580,19 @@ async function addReading() {
   if (r.ok) { el.value = ''; toast('已记录'); refresh(); } else toast(r.msg || '失败');
 }
 
-async function addCharge() {
-  const el = document.getElementById('chargeInput');
+async function submitCharge(inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
   const v = parseFloat(el.value);
   if (!isFinite(v) || v <= 0) return toast('请输入有效度数');
   const r = await api('/api/charge', 'POST', { value: v });
   if (r.ok) { el.value = ''; toast('已记录'); refresh(); } else toast(r.msg || '失败');
 }
+
+function addReading() { return submitReading('readInput', 'readDate'); }
+function addCharge() { return submitCharge('chargeInput'); }
+function addMateReading() { return submitReading('mateReadInput', 'mateReadDate'); }
+function addMateCharge() { return submitCharge('mateChargeInput'); }
 
 async function delRec(id) {
   const r = await api('/api/record/' + id, 'DELETE');
@@ -525,6 +612,12 @@ async function saveSettings() {
 }
 
 // 导出走原生 fetch 拿 blob，不能复用 api()——它会把响应当 JSON 解析
+async function regenOpenToken() {
+  if (!confirm('重置后旧的 token 立刻失效（Dify 里的工具需要换新 token）。继续？')) return;
+  const r = await api('/api/regen-open-token', 'POST', {});
+  if (r.ok) { toast('已重置'); refresh(null); } else toast(r.msg || '失败');
+}
+
 async function exportData(fmt) {
   if (!KEY) return toast('请先用管理口令登录');
   try {
@@ -573,7 +666,7 @@ async function setGuestKey() {
   if (!el) return;   // 设置区已无舍友口令入口，防止空引用
   const k = el.value.trim();
   const r = await api('/api/set-guest-key', 'POST', { key: k });
-  if (r.ok) { toast(k ? '舍友口令已设置' : '已取消舍友口令'); refresh(); } else toast(r.msg || '失败');
+  if (r.ok) { el.value = ''; toast(k ? '舍友口令已设置，舍友现在能录读数了' : '已取消舍友口令，现在所有人都是访客（只读）'); refresh(); } else toast(r.msg || '失败');
 }
 
 async function changeKey() {
@@ -633,7 +726,9 @@ try {
   const w = localStorage.getItem('dormWho');
   if (w) { const el = document.getElementById('gWhoInput'); if (el) el.value = w; }
 } catch (e) {}
-refresh(window.__BOOT__ || null);
+// 首屏数据是服务端按「这次 HTML 请求」的身份算的，而 HTML 请求带不了自定义头：
+// 本地存了口令时必须重新拉一次，否则舍友会先被画成访客，要等 60 秒轮询才变回来
+refresh((KEY || GUESTKEY) ? null : (window.__BOOT__ || null));
 setInterval(function () { refresh(null); }, 60000);
 </script>
 </body>
