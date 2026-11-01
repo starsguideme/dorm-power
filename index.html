@@ -103,26 +103,16 @@
     </div>
   </div>
   <div class="card">
-    <p class="label" style="margin-bottom:8px;">记一次读数（在宿舍就顺手录一下）</p>
-    <div class="row">
-      <div style="flex:2"><input id="gReadInput" type="number" inputmode="decimal" step="0.1" placeholder="电表剩余电量，如 42.6"></div>
-      <div style="flex:1"><button class="primary" onclick="gAdd('reading')">读数</button></div>
-    </div>
-    <div class="row" style="margin-top:8px;">
-      <div style="flex:2"><input id="gChargeInput" type="number" inputmode="decimal" step="0.1" placeholder="充值度数，如 50"></div>
-      <div style="flex:1"><button onclick="gAdd('charge')">充值</button></div>
-    </div>
-    <div class="field" style="margin-top:8px;"><input id="gWhoInput" placeholder="谁记的（选填，如 张三）" maxlength="10"></div>
-    <p class="hint">录入后管理员能看到明细；你这边只会看到取整后的额度。</p>
-    <div class="btns" style="margin-top:10px;"><button class="small" onclick="logout()">切换身份</button></div>
+    <p class="hint" style="margin:0;">当前为<b>只读视图</b>：可以看到取整后的余量与预计天数，无法录入或修改。录数据需管理员口令登录。</p>
   </div>
+
   <div class="card">
-    <p class="label" style="margin-bottom:8px;">管理员登录（输入口令）</p>
+    <p class="label" style="margin-bottom:8px;">管理员登录</p>
     <div class="row">
       <div style="flex:2"><input id="keyInput" type="password" placeholder="管理口令"></div>
-      <div style="flex:1"><button class="primary" onclick="login()">登录</button></div>
+      <div style="flex:1"><button onclick="login()">登录</button></div>
     </div>
-    <p class="hint">口令只存在这台设备，其他人看到的仍是概览。</p>
+    <p class="hint">只有管理员能看明细、改设置。舍友与访客只能看概览。</p>
   </div>
 </div>
 
@@ -139,6 +129,7 @@
       <div><p class="label">日均消耗</p><p class="mid"><span id="daily">—</span><span>度/天</span></p></div>
       <div><p class="label">上次读数</p><p class="mid" style="font-size:15px;font-weight:400;color:#5B6068;"><span id="lastRead">—</span></p></div>
     </div>
+    <p class="hint" id="formulaLine" style="margin-top:6px;">—</p>
     <p class="hint" id="estLine" style="margin-top:10px;">—</p>
     <p class="hint" id="schedLine" style="margin-top:2px;color:#2B5C9B;">—</p>
   </div>
@@ -154,11 +145,12 @@
   </div>
 
   <div class="card">
-    <p class="label" style="margin-bottom:8px;">记一笔充值（可选）</p>
+    <p class="label" style="margin-bottom:8px;">记一笔充值（仅记账，余额以电表读数为准）</p>
     <div class="row">
       <div style="flex:2"><input id="chargeInput" type="number" inputmode="decimal" step="0.1" placeholder="充了几度"></div>
       <div style="flex:1"><button onclick="addCharge()">记录</button></div>
     </div>
+    <p class="hint">充值后电表数字会跳增，请顺便录一次新读数。</p>
   </div>
 
   <div class="card">
@@ -196,17 +188,6 @@
       <div style="flex:2"><input id="newKeyInput" type="password" placeholder="设置/修改口令（至少 4 位）"></div>
       <div style="flex:1"><button class="small" onclick="changeKey()">保存口令</button></div>
     </div>
-    <p class="label" style="margin:14px 0 6px;">舍友口令（录入前需输入，留空则不需要）</p>
-    <div class="row">
-      <div style="flex:2"><input id="guestKeyInput" type="text" placeholder="4 位数字，如 4114"></div>
-      <div style="flex:1"><button class="small" onclick="setGuestKey()">保存</button></div>
-    </div>
-    <p class="label" style="margin:14px 0 6px;">数据备份</p>
-    <div class="btns">
-      <button class="small" onclick="exportData('csv')">导出 CSV</button>
-      <button class="small" onclick="exportData('json')">导出 JSON</button>
-    </div>
-    <p class="hint" style="margin-top:6px;">JSON 含口令和推送 token，用来换机/重建后恢复，别外传；CSV 只有记录，给 Excel 看。</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="resetAll()">清空所有记录</button>
       <button class="small" onclick="logout()">切换身份</button>
@@ -227,6 +208,7 @@
 let S = null;
 let KEY = '';
 let GUESTKEY = '';
+let GUESTAUTH = false;
 
 function toast(t) {
   const el = document.getElementById('toast');
@@ -269,7 +251,7 @@ function showOwner() {
 function showGuest() {
   showOnly('guestArea');
   document.getElementById('roleBadge').textContent = '舍友视图';
-  document.getElementById('subline').textContent = '只显示概览，取整后的剩余额度';
+  document.getElementById('subline').textContent = '只读视图 · 概览取整显示，录入需管理员登录';
 }
 
 async function refresh(pre) {
@@ -277,8 +259,6 @@ async function refresh(pre) {
   try { d = pre || await api('/api/state'); }
   catch (e) {
     showGuest();
-    const kf = document.getElementById('gKeyField');
-    if (kf) kf.style.display = (d.needGuestKey && !GUESTKEY) ? 'block' : 'none';
     const b = document.getElementById('gbanner'), t = document.getElementById('gbannerText');
     b.className = 'banner b-warn';
     t.innerHTML = '加载失败，点这里重试';
@@ -298,7 +278,6 @@ async function refresh(pre) {
   document.getElementById('setupArea').style.display = 'none';
 
   if (d.scope === 'guest') {
-    if (d.needGuestKey && !GUESTKEY) { showLogin(); return; }
     showGuest();
     document.getElementById('gbalance').textContent = d.balance === null ? '—' : d.balance;
     document.getElementById('gdays').textContent = d.daysLeft === null ? '—' : d.daysLeft;
@@ -319,9 +298,23 @@ async function refresh(pre) {
   const st = S.stats, thr = Number(S.threshold) || 15;
   const estBal = st && st.estBalance !== null && st.estBalance !== undefined ? st.estBalance : (st ? st.balance : null);
   const estDays = st && st.estDaysLeft !== null && st.estDaysLeft !== undefined ? st.estDaysLeft : (st ? st.daysLeft : null);
-  document.getElementById('balance').textContent = estBal !== null && estBal !== undefined ? estBal.toFixed(1) : '—';
-  document.getElementById('daily').textContent = st && st.daily ? st.daily.toFixed(2) : '—';
-  document.getElementById('days').textContent = estDays ? (estDays >= 100 ? '99+' : estDays.toFixed(1)) : '—';
+  document.getElementById('balance').textContent = estBal !== null && estBal !== undefined ? Math.round(estBal) : '—';
+  document.getElementById('daily').textContent = st && st.daily ? st.daily.toFixed(1) : '—';
+  document.getElementById('days').textContent = estDays ? (estDays >= 100 ? '99+' : Math.round(estDays)) : '—';
+  // 公式透出：显示推算依据，避免「这个数字哪来的」
+  const fx = document.getElementById('formulaLine');
+  if (fx) {
+    const rs = (S.records || []).filter(function (r) { return r.type === 'reading'; })
+      .sort(function (a, b) { return a.ts - b.ts; });
+    if (rs.length >= 2 && st && st.daily) {
+      const f0 = rs[0], l0 = rs[rs.length - 1];
+      const days0 = Math.round((l0.ts - f0.ts) / 86400000);
+      fx.textContent = '按 ' + f0.value.toFixed(1) + ' → ' + l0.value.toFixed(1)
+        + '（' + days0 + ' 天）实测日均 ' + st.daily.toFixed(1) + ' 度/天推算';
+    } else {
+      fx.textContent = '';
+    }
+  }
   const el = document.getElementById('estLine');
   if (el) {
     if (st && st.daily) {
@@ -339,8 +332,8 @@ async function refresh(pre) {
   const b = document.getElementById('banner'), t = document.getElementById('bannerText');
   b.className = 'banner';
   if (!st) { b.classList.add('b-safe'); t.textContent = '还没有读数，先记一次吧'; }
-  else if (estBal <= thr) { b.classList.add('b-danger'); t.textContent = '估算余量 ' + estBal.toFixed(1) + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
-  else if (estDays && estDays <= 7) { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + estDays.toFixed(1) + ' 天，建议这周充值'; }
+  else if (estBal <= thr) { b.classList.add('b-danger'); t.textContent = '估算余量 ' + Math.round(estBal) + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
+  else if (estDays && estDays <= 7) { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + Math.round(estDays) + ' 天，建议这周充值'; }
   else { b.classList.add('b-safe'); t.textContent = estDays ? '状态正常，大约还能用 ' + (estDays >= 100 ? '99+' : estDays.toFixed(1)) + ' 天' : '已记录 1 次读数，再记一次就能预测剩余天数'; }
 
   const list = document.getElementById('list'), rs = S.records || [];
@@ -429,27 +422,6 @@ async function setupKey() {
     KEY = k;
     try { localStorage.setItem('dormKey', k); } catch (e) {}
     toast('口令已设置，你是管理员');
-    refresh(null);
-  } else toast(r.msg || '失败');
-}
-
-async function gAdd(type) {
-  const isRead = type === 'reading';
-  const input = document.getElementById(isRead ? 'gReadInput' : 'gChargeInput');
-  const v = parseFloat(input.value);
-  if (!isFinite(v) || v < 0 || (!isRead && v <= 0)) return toast('请输入有效数值');
-  const who = (document.getElementById('gWhoInput').value || '').trim();
-  try { localStorage.setItem('dormWho', who); } catch (e) {}
-  let payload2 = { value: v, who: who };
-  let r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', payload2);
-  if (!r.ok && r.needConfirm) {
-    if (!confirm(r.msg + '\n\n点「确定」保存，点「取消」回去改。')) return;
-    payload2.force = true;
-    r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', payload2);
-  }
-  if (r.ok) {
-    input.value = '';
-    toast(isRead ? '已记录读数' : '已记录充值');
     refresh(null);
   } else toast(r.msg || '失败');
 }
@@ -582,6 +554,33 @@ async function testPush() {
   const r = await api('/api/push-test', 'POST');
   toast(r.ok ? '已发送，去微信看' : ('失败：' + (r.msg || '未知')));
   refresh();
+}
+
+async function exportData(fmt) {
+  try {
+    const res = await fetch('/api/export?format=' + fmt, {
+      headers: KEY ? { 'x-owner-key': KEY } : {}
+    });
+    if (!res.ok) {
+      if (res.status === 403) { toast('导出需要管理员登录'); return; }
+      toast('导出失败：HTTP ' + res.status);
+      return;
+    }
+    const blob = await res.blob();
+    const d = new Date();
+    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '宿舍电费-' + stamp + '.' + fmt;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+    toast('已导出 ' + fmt.toUpperCase());
+    refresh(null);
+  } catch (e) {
+    toast('导出异常：' + e.message);
+  }
 }
 
 async function resetAll() {

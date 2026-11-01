@@ -444,18 +444,12 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 428, { ok: false, msg: '请先设置管理口令' });
   }
 
-  const needOwner = ['/api/settings', '/api/push-test', '/api/push-now', '/api/reset'];
+  const needOwner = ['/api/settings', '/api/push-test', '/api/push-now', '/api/reset', '/api/reading', '/api/charge'];
   if (needOwner.indexOf(url.pathname) >= 0 && !isOwner(req, url)) {
     return sendJSON(res, 403, { ok: false, msg: '只有管理员能改数据' });
   }
   if (url.pathname.indexOf('/api/record/') === 0 && req.method === 'DELETE' && !isOwner(req, url)) {
     return sendJSON(res, 403, { ok: false, msg: '只有管理员能删除记录' });
-  }
-
-  if ((url.pathname === '/api/reading' || url.pathname === '/api/charge') && req.method === 'POST') {
-    if (!isOwner(req, url) && !guestOk(req)) {
-      return sendJSON(res, 403, { ok: false, msg: '请先输入舍友口令' });
-    }
   }
 
   if (url.pathname === '/api/guest-login' && req.method === 'POST') {
@@ -610,7 +604,7 @@ const server = http.createServer(async (req, res) => {
     if (fmt !== 'json') return sendJSON(res, 400, { ok: false, msg: 'format 只支持 json / csv' });
     // 默认导出全量（含口令与 token）：这是给「平台升级后一键恢复」用的备份，不是给外传的
     // 要脱敏加 &secret=0
-    const withSecret = url.searchParams.get('secret') !== '0';
+    const withSecret = url.searchParams.get('secret') === '1';
     const payload = { app: 'dorm-power', version: 1, exportedAt: Date.now(), exportedDate: stamp, data: Object.assign({}, data) };
     if (!withSecret) {
       delete payload.data.ownerKey;
