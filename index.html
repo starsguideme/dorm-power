@@ -188,6 +188,12 @@
       <div style="flex:2"><input id="newKeyInput" type="password" placeholder="设置/修改口令（至少 4 位）"></div>
       <div style="flex:1"><button class="small" onclick="changeKey()">保存口令</button></div>
     </div>
+    <p class="label" style="margin:14px 0 6px;">数据备份</p>
+    <div class="btns">
+      <button class="small" onclick="exportData('csv')">导出 CSV</button>
+      <button class="small" onclick="exportData('json')">导出 JSON</button>
+    </div>
+    <p class="hint" style="margin-top:6px;">JSON 含口令和推送 token，用来换机/重建后恢复，别外传；CSV 只有记录，给 Excel 看。</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="resetAll()">清空所有记录</button>
       <button class="small" onclick="logout()">切换身份</button>
@@ -556,33 +562,6 @@ async function testPush() {
   refresh();
 }
 
-async function exportData(fmt) {
-  try {
-    const res = await fetch('/api/export?format=' + fmt, {
-      headers: KEY ? { 'x-owner-key': KEY } : {}
-    });
-    if (!res.ok) {
-      if (res.status === 403) { toast('导出需要管理员登录'); return; }
-      toast('导出失败：HTTP ' + res.status);
-      return;
-    }
-    const blob = await res.blob();
-    const d = new Date();
-    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = '宿舍电费-' + stamp + '.' + fmt;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
-    toast('已导出 ' + fmt.toUpperCase());
-    refresh(null);
-  } catch (e) {
-    toast('导出异常：' + e.message);
-  }
-}
-
 async function resetAll() {
   if (!confirm('清空所有读数与充值记录？房间号和 token 会保留。')) return;
   const r = await api('/api/reset', 'POST');
@@ -590,7 +569,9 @@ async function resetAll() {
 }
 
 async function setGuestKey() {
-  const k = document.getElementById('guestKeyInput').value.trim();
+  const el = document.getElementById('guestKeyInput');
+  if (!el) return;   // 设置区已无舍友口令入口，防止空引用
+  const k = el.value.trim();
   const r = await api('/api/set-guest-key', 'POST', { key: k });
   if (r.ok) { toast(k ? '舍友口令已设置' : '已取消舍友口令'); refresh(); } else toast(r.msg || '失败');
 }
