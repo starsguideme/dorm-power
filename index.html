@@ -139,6 +139,8 @@
       <div><p class="label">日均消耗</p><p class="mid"><span id="daily">—</span><span>度/天</span></p></div>
       <div><p class="label">上次读数</p><p class="mid" style="font-size:15px;font-weight:400;color:#5B6068;"><span id="lastRead">—</span></p></div>
     </div>
+    <p class="hint" id="estLine" style="margin-top:10px;">—</p>
+    <p class="hint" id="schedLine" style="margin-top:2px;color:#2B5C9B;">—</p>
   </div>
 
   <div class="card">
@@ -147,7 +149,8 @@
       <div style="flex:2"><input id="readInput" type="number" inputmode="decimal" step="0.1" placeholder="例如 42.6"></div>
       <div style="flex:1"><button class="primary" onclick="addReading()">记录</button></div>
     </div>
-    <p class="hint">每周抄一次就够；满两次才能算日均。</p>
+    <div class="field" style="margin-top:8px;"><input id="readDate" type="date"></div>
+    <p class="hint">日期填「这个读数对应哪天」（宿管每 7 天更新一次，照她的表填，别填今天）。满两次才能算日均。</p>
   </div>
 
   <div class="card">
@@ -169,15 +172,25 @@
   </div>
 
   <div class="card">
+    <p class="label" style="margin-bottom:6px;">事件日志（最近 20 条）</p>
+    <ul id="logList"><li class="empty">暂无日志</li></ul>
+  </div>
+
+  <div class="card">
     <p class="label" style="margin-bottom:8px;">设置</p>
     <div class="field"><input id="roomInput" placeholder="房间号，例如 19#-411" onblur="saveSettings()"></div>
     <div class="field"><input id="thrInput" type="number" inputmode="decimal" placeholder="告警阈值（度）" onblur="saveSettings()"></div>
+    <div class="field"><input id="peopleInput" type="number" inputmode="numeric" placeholder="宿舍人数（如 6）" onblur="saveSettings()"></div>
     <div class="field"><input id="tokInput" placeholder="PushPlus token（推送用，可后填）" onblur="saveSettings()"></div>
     <p class="hint">每晚 23:55 自动推一条微信：余量、日均、还能用几天。</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="testPush()">发送测试推送</button>
       <button class="small" onclick="copyLink()">复制分享链接</button>
     </div>
+    <p class="label" style="margin:14px 0 6px;">推送状态</p>
+    <p class="hint" id="pushStatus" style="margin:0;">—</p>
+    <p class="label" style="margin:14px 0 6px;">外部定时链接（推荐：交给 cron-job.org 每天 23:55 调用，最稳）</p>
+    <input id="cronUrl" readonly onclick="this.select()" style="font-size:12px;">
     <p class="label" style="margin:14px 0 6px;">管理口令</p>
     <div class="row">
       <div style="flex:2"><input id="newKeyInput" type="password" placeholder="设置/修改口令（至少 4 位）"></div>
@@ -283,7 +296,9 @@ async function refresh(pre) {
     showGuest();
     document.getElementById('gbalance').textContent = d.balance === null ? '—' : d.balance;
     document.getElementById('gdays').textContent = d.daysLeft === null ? '—' : d.daysLeft;
-    document.getElementById('gtime').textContent = d.updatedAt ? new Date(d.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    document.getElementById('gtime').textContent = d.updatedAt
+      ? new Date(d.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' }) + (d.staleDays ? '（' + d.staleDays + ' 天前）' : '')
+      : '—';
     const b = document.getElementById('gbanner'), t = document.getElementById('gbannerText');
     b.className = 'banner';
     if (d.status === 'unknown') { b.classList.add('b-safe'); t.textContent = '还没有读数'; }
@@ -296,17 +311,31 @@ async function refresh(pre) {
   showOwner();
   S = d;
   const st = S.stats, thr = Number(S.threshold) || 15;
-  document.getElementById('balance').textContent = st ? st.balance.toFixed(1) : '—';
+  const estBal = st && st.estBalance !== null && st.estBalance !== undefined ? st.estBalance : (st ? st.balance : null);
+  const estDays = st && st.estDaysLeft !== null && st.estDaysLeft !== undefined ? st.estDaysLeft : (st ? st.daysLeft : null);
+  document.getElementById('balance').textContent = estBal !== null && estBal !== undefined ? estBal.toFixed(1) : '—';
   document.getElementById('daily').textContent = st && st.daily ? st.daily.toFixed(2) : '—';
-  document.getElementById('days').textContent = st && st.daysLeft ? (st.daysLeft >= 100 ? '99+' : st.daysLeft.toFixed(1)) : '—';
+  document.getElementById('days').textContent = estDays ? (estDays >= 100 ? '99+' : estDays.toFixed(1)) : '—';
+  const el = document.getElementById('estLine');
+  if (el) {
+    if (st && st.daily) {
+      const cut = st.cutAt ? new Date(st.cutAt) : null;
+      const ppl = Number(S.people) || 6;
+      el.textContent = '实测 ' + st.balance.toFixed(1) + ' 度（' + Math.floor(st.elapsedDays || 0) + ' 天前）'
+        + (cut ? ' · 预计 ' + (cut.getMonth() + 1) + ' 月 ' + cut.getDate() + ' 日前后断电' : '')
+        + ' · ' + ppl + ' 人分摊 ' + (st.daily / ppl).toFixed(1) + ' 度/人/天';
+    } else {
+      el.textContent = '只有一次读数，无法推算；再录一次（隔几天）就能算日均。';
+    }
+  }
   document.getElementById('lastRead').textContent = st ? new Date(st.lastTs).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   const b = document.getElementById('banner'), t = document.getElementById('bannerText');
   b.className = 'banner';
   if (!st) { b.classList.add('b-safe'); t.textContent = '还没有读数，先记一次吧'; }
-  else if (st.balance <= thr) { b.classList.add('b-danger'); t.textContent = '余量 ' + st.balance.toFixed(1) + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
-  else if (st.daysLeft && st.daysLeft <= 7) { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + st.daysLeft.toFixed(1) + ' 天，建议这周充值'; }
-  else { b.classList.add('b-safe'); t.textContent = st.daysLeft ? '状态正常，大约还能用 ' + (st.daysLeft >= 100 ? '99+' : st.daysLeft.toFixed(1)) + ' 天' : '已记录 1 次读数，再记一次就能预测剩余天数'; }
+  else if (estBal <= thr) { b.classList.add('b-danger'); t.textContent = '估算余量 ' + estBal.toFixed(1) + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
+  else if (estDays && estDays <= 7) { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + estDays.toFixed(1) + ' 天，建议这周充值'; }
+  else { b.classList.add('b-safe'); t.textContent = estDays ? '状态正常，大约还能用 ' + (estDays >= 100 ? '99+' : estDays.toFixed(1)) + ' 天' : '已记录 1 次读数，再记一次就能预测剩余天数'; }
 
   const list = document.getElementById('list'), rs = S.records || [];
   if (!rs.length) list.innerHTML = '<li class="empty">暂无记录</li>';
@@ -318,10 +347,53 @@ async function refresh(pre) {
     return '<li class="item"><span class="tag ' + cls + '">' + txt + '</span><span class="val">' + r.value.toFixed(1) + '</span><span class="time">' + time + '</span><button class="del" onclick="delRec(' + r.id + ')">×</button></li>';
   }).join('');
 
+  const logList = document.getElementById('logList');
+  if (logList) {
+    const logs = (S.logs || []).slice(0, 20);
+    if (!logs.length) logList.innerHTML = '<li class="empty">暂无日志</li>';
+    else logList.innerHTML = logs.map(function (g) {
+      const t = new Date(g.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const color = g.ok === true ? '#0F6E56' : (g.ok === false ? '#A32D2D' : '#5B6068');
+      return '<li class="item"><span class="val" style="font-size:12px;color:' + color + ';min-width:56px;">' + g.action + '</span>'
+        + '<span style="flex:1;font-size:13px;color:#4B5563;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (g.detail || '') + '</span>'
+        + '<span class="time">' + t + '</span></li>';
+    }).join('');
+  }
+
   drawChart();
   document.getElementById('keyWarn').style.display = S.hasKey ? 'none' : 'flex';
   document.getElementById('roomInput').value = S.room || '';
   document.getElementById('thrInput').value = S.threshold || 15;
+  const rd = document.getElementById('readDate');
+  if (rd && !rd.value) rd.value = new Date().toISOString().slice(0, 10);
+  const schedEl = document.getElementById('schedLine');
+  if (schedEl) {
+    const now = new Date();
+    const dow = now.getDay();                 // 0=周日
+    const add = (7 - dow) % 7;                // 距离下一个周日
+    const d2 = new Date(now.getTime() + (add === 0 ? 0 : add) * 86400000);
+    const label = add === 0 ? '今天（周日）' : ((d2.getMonth() + 1) + ' 月 ' + d2.getDate() + ' 日 周日');
+    const stale = (S.stats && S.stats.elapsedDays) || 0;
+    schedEl.textContent = '下次抄表：' + label + '（宿管统计日）'
+      + (stale >= 7 ? ' ｜ 已 ' + Math.floor(stale) + ' 天未更新 → 天' : '').replace('→ 天', '')
+      + (stale >= 7 ? '，建议今天补录' : '');
+  }
+
+  const ps = document.getElementById('pushStatus');
+  if (ps) {
+    if (!S.hasToken) ps.textContent = '未填 PushPlus token，推送不会发出。';
+    else if (S.lastPush) {
+      const t = new Date(S.lastPush.at);
+      ps.textContent = '上次推送：' + t.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        + ' · ' + (S.lastPush.ok ? '成功' : '失败：' + (S.lastPush.msg || '未知'))
+        + '（来源 ' + (S.lastPush.tag || 'auto') + '）';
+    } else ps.textContent = '还没有推送记录。';
+    if (S.serverTz) ps.textContent += ' ｜ 服务器时区 ' + S.serverTz + '，已按东八区计算';
+  }
+  const cu = document.getElementById('cronUrl');
+  if (cu && S.cronSecret) cu.value = location.origin + '/api/cron?secret=' + S.cronSecret;
+  const pi = document.getElementById('peopleInput');
+  if (pi) pi.value = S.people || 6;
   document.getElementById('subline').textContent = S.hasToken
     ? '完整数据 · 每晚 23:55 微信推送已开启'
     : '完整数据 · 舍友看到的是概览（推送未配置）';
@@ -362,7 +434,13 @@ async function gAdd(type) {
   if (!isFinite(v) || v < 0 || (!isRead && v <= 0)) return toast('请输入有效数值');
   const who = (document.getElementById('gWhoInput').value || '').trim();
   try { localStorage.setItem('dormWho', who); } catch (e) {}
-  const r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', { value: v, who: who });
+  let payload2 = { value: v, who: who };
+  let r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', payload2);
+  if (!r.ok && r.needConfirm) {
+    if (!confirm(r.msg + '\n\n点「确定」保存，点「取消」回去改。')) return;
+    payload2.force = true;
+    r = await api(isRead ? '/api/reading' : '/api/charge', 'POST', payload2);
+  }
   if (r.ok) {
     input.value = '';
     toast(isRead ? '已记录读数' : '已记录充值');
@@ -424,7 +502,16 @@ async function addReading() {
   const el = document.getElementById('readInput');
   const v = parseFloat(el.value);
   if (!isFinite(v) || v < 0) return toast('请输入有效读数');
-  const r = await api('/api/reading', 'POST', { value: v });
+  const dateEl = document.getElementById('readDate');
+  const payload = { value: v };
+  if (dateEl && dateEl.value) payload.date = dateEl.value;
+
+  let r = await api('/api/reading', 'POST', payload);
+  if (!r.ok && r.needConfirm) {
+    if (!confirm(r.msg + '\n\n点「确定」按这个数保存，点「取消」回去改。')) return;
+    payload.force = true;
+    r = await api('/api/reading', 'POST', payload);
+  }
   if (r.ok) { el.value = ''; toast('已记录'); refresh(); } else toast(r.msg || '失败');
 }
 
@@ -445,7 +532,9 @@ async function saveSettings() {
   const room = document.getElementById('roomInput').value.trim();
   const threshold = parseFloat(document.getElementById('thrInput').value);
   const pushToken = document.getElementById('tokInput').value.trim();
+  const people = parseFloat(document.getElementById('peopleInput').value);
   const body = { room: room, pushToken: pushToken };
+  if (isFinite(people) && people >= 1) body.people = people;
   if (isFinite(threshold) && threshold > 0) body.threshold = threshold;
   await api('/api/settings', 'POST', body);
   refresh(); toast('设置已保存');

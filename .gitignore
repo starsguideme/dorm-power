@@ -1,3 +1,9 @@
 node_modules/
 *.log
 .DS_Store
+
+# 数据与备份绝不入库：平台从仓库部署时会把本地 data.json 覆盖到线上
+data.json
+data.json.tmp
+data.json.bak*
+*.local-backup-*
