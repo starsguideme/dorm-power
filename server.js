@@ -174,6 +174,10 @@ function publicState(role) {
     status: statusOf(s),
     balance: e ? roundBalance(e.est) : null,
     daysLeft: e ? roundDays(e.daysLeft) : null,
+    // 阈值与日均给到访客：不敏感，而且是「什么时候该充值」的唯一依据，
+    // 不给的话访客只会看到一句「目前够用」，不知道临界点在哪。
+    threshold: Number(data.threshold) || 15,
+    daily: e && e.daily ? Math.round(e.daily * 10) / 10 : null,
     updatedAt: s ? s.last.ts : null,
     staleDays: e ? Math.floor(e.elapsed) : null,
     serverTz: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -190,7 +194,10 @@ function ownerState() {
     room: data.room,
     threshold: data.threshold,
     people: data.people || 6,
-    hasToken: !!data.pushToken,
+    // 环境变量优先：平台配了 PUSH_TOKEN 就算「已配置」，页面不能因为 data.json 里是空
+    // 就显示「未填 token」——发版丢掉 data.json 时，推送其实一直是靠环境变量在跑。
+    hasToken: !!(ENV_PUSH_TOKEN || data.pushToken),
+    tokenSource: ENV_PUSH_TOKEN ? 'env' : (data.pushToken ? 'data' : 'none'),
     cronSecret: data.cronSecret || '',
     openToken: data.openToken || '',
     lastPush: data.lastPush || null,
@@ -327,6 +334,18 @@ function selfWake() {
   console.log('self-wake sent', p.hh + ':' + p.mm);
 }
 setInterval(selfWake, 45 * 1000);
+
+function purgeExpiredData() {
+  const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+  const before = data.logs.length;
+  data.logs = (data.logs || []).filter(l => (l.ts || 0) > cutoff);
+  if (data.logs.length !== before) {
+    console.log('purged logs:', before - data.logs.length);
+  }
+  saveData();
+}
+setInterval(purgeExpiredData, 6 * 3600 * 1000);
+purgeExpiredData();
 
 setInterval(tickPush, 20 * 1000);
 setTimeout(tickPush, 3 * 1000);
@@ -494,7 +513,8 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 428, { ok: false, msg: '请先设置管理口令' });
   }
 
-  let rlWindow = 0, rlCount = 0;
+  let failMap = {};
+let rlWindow = 0, rlCount = 0;
   function rateOk() {
     const now = Date.now();
     if (now - rlWindow > 60000) { rlWindow = now; rlCount = 0; }
@@ -503,9 +523,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/open/summary' && req.method === 'GET') {
+    const ip = req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    if (!failMap[ip]) failMap[ip] = { count: 0, first: now, blockedUntil: 0 };
+    const fb = failMap[ip];
+    if (fb.blockedUntil > now) {
+      return sendJSON(res, 429, { ok: false, msg: '该 IP 已被临时封禁，30 分钟后重试' });
+    }
     const tk = url.searchParams.get('token') || req.headers['x-open-token'] || '';
     if (!data.openToken || tk !== data.openToken) {
-      addLog('AI查询', 'token 校验失败'); saveData();
+      fb.count += 1;
+      if (fb.count >= 30) {
+        fb.blockedUntil = now + 30 * 60 * 1000;
+        addLog('限流', 'IP ' + ip + ' 失败 ' + fb.count + ' 次，封禁 30 分钟');
+        saveData();
+        return sendJSON(res, 429, { ok: false, msg: '失败次数过多，封禁 30 分钟' });
+      }
+      if (fb.count <= 2) {
+        addLog('AI查询', 'token 校验失败(第 ' + fb.count + ' 次)'); saveData();
+      } else if (fb.count % 25 === 0) {
+        addLog('AI查询', 'token 校验失败已聚合 ×' + fb.count); saveData();
+      }
       return sendJSON(res, 403, { ok: false, msg: 'token 无效' });
     }
     if (!rateOk()) return sendJSON(res, 429, { ok: false, msg: '请求过于频繁（限 60 次/分钟）' });
@@ -654,7 +692,11 @@ const server = http.createServer(async (req, res) => {
     if (typeof b.pushToken === 'string') data.pushToken = b.pushToken.trim().slice(0, 120);
     if (isFinite(Number(b.people)) && Number(b.people) >= 1 && Number(b.people) <= 20) data.people = Math.round(Number(b.people));
     saveData();
-    return sendJSON(res, 200, { ok: true });
+    return sendJSON(res, 200, {
+      ok: true,
+      tokenSource: ENV_PUSH_TOKEN ? 'env' : (data.pushToken ? 'data' : 'none'),
+      warn: ENV_PUSH_TOKEN ? '平台已配置环境变量 PUSH_TOKEN，推送实际走的是它；这里填的只作备用。' : ''
+    });
   }
 
   if (url.pathname === '/api/cron' && (req.method === 'GET' || req.method === 'POST')) {
@@ -668,7 +710,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/push-test' && req.method === 'POST') {
     const r = await sendPush('宿舍电费提醒（测试）', summaryText());
-    return sendJSON(res, 200, { ok: r.ok, msg: r.msg });
+    return sendJSON(res, 200, { ok: r.ok, msg: r.msg, via: ENV_PUSH_TOKEN ? 'env' : 'data' });
   }
 
   if (url.pathname === '/api/push-now' && req.method === 'POST') {

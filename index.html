@@ -19,9 +19,9 @@
   .row { display: flex; gap: 12px; }
   .row > div { flex: 1; min-width: 0; }
   .label { font-size: 12px; color: #8A8F99; margin: 0 0 4px; }
-  .big { font-size: 40px; font-weight: 600; line-height: 1.05; letter-spacing: -1px; }
+  .big { font-size: 40px; font-weight: 600; line-height: 1.05; letter-spacing: -1px; margin: 2px 0 0; }
   .big span { font-size: 15px; font-weight: 400; color: #8A8F99; margin-left: 4px; }
-  .mid { font-size: 20px; font-weight: 600; line-height: 1.2; }
+  .mid { font-size: 20px; font-weight: 600; line-height: 1.2; margin: 2px 0 0; }
   .mid span { font-size: 12px; font-weight: 400; color: #8A8F99; margin-left: 2px; }
   .banner { border-radius: 12px; padding: 12px 14px; font-size: 13px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
   .b-safe { background: #E8F6EF; color: #0F6E56; }
@@ -101,6 +101,15 @@
       <div><p class="label">预计还能用</p><p class="mid"><span id="gdays">—</span><span>天</span></p></div>
       <div><p class="label">数据时间</p><p class="mid" style="font-size:14px;font-weight:400;color:#5B6068;"><span id="gtime">—</span></p></div>
     </div>
+    <p class="hint" id="gMetaLine" style="margin:12px 0 0;">—</p>
+    <p class="hint" id="gStaleLine" style="margin:6px 0 0;color:#8A5B0B;display:none;">—</p>
+  </div>
+
+  <div class="card" id="gEmptyCard" style="display:none;">
+    <p class="label" style="margin-bottom:10px;">还没有读数，三步开始</p>
+    <p class="hint" style="margin:0 0 8px;">① 去楼下电表抄一次数（宿管那张表上的数也行）</p>
+    <p class="hint" style="margin:0 0 8px;" id="gStep2">② 填进来，<b>日期照表上那天填，别填今天</b></p>
+    <p class="hint" style="margin:0;">③ 隔 7 天再抄一次，才能算出日均和断电日</p>
   </div>
   <div class="card">
     <p class="hint" id="gRoleHint" style="margin:0;">—</p>
@@ -196,13 +205,14 @@
     <div class="field"><input id="roomInput" placeholder="房间号，例如 19#-411" onblur="saveSettings()"></div>
     <div class="field"><input id="thrInput" type="number" inputmode="decimal" placeholder="告警阈值（度）" onblur="saveSettings()"></div>
     <div class="field"><input id="peopleInput" type="number" inputmode="numeric" placeholder="宿舍人数（如 6）" onblur="saveSettings()"></div>
-    <div class="field"><input id="tokInput" placeholder="PushPlus token（推送用，可后填）" onblur="saveSettings()"></div>
+    <div class="field"><input id="tokInput" placeholder="PushPlus token（留空即可：环境变量优先）" onblur="saveSettings()"></div>
     <p class="hint">每晚 23:55 自动推一条微信：余量、日均、还能用几天。</p>
     <div class="btns" style="margin-top:10px;">
       <button class="small" onclick="testPush()">发送测试推送</button>
       <button class="small" onclick="copyLink()">复制分享链接</button>
     </div>
     <p class="label" style="margin:14px 0 6px;">推送状态</p>
+    <p class="hint" id="pushTokenSrc" style="margin:0 0 6px;">—</p>
     <p class="hint" id="pushStatus" style="margin:0;">—</p>
     <p class="label" style="margin:14px 0 6px;">外部定时链接（推荐：交给 cron-job.org 每天 23:55 调用，最稳）</p>
     <input id="cronUrl" readonly onclick="this.select()" style="font-size:12px;">
@@ -345,15 +355,58 @@ async function refresh(pre) {
     if (mrd && !mrd.value) mrd.value = new Date().toISOString().slice(0, 10);
     document.getElementById('gbalance').textContent = d.balance === null ? '—' : d.balance;
     document.getElementById('gdays').textContent = d.daysLeft === null ? '—' : d.daysLeft;
+    // 没有数据时不要把「— 度」「— 天」并排摆出来，看着像坏了
+    const noBal = d.balance === null;
+    const balUnit = document.getElementById('gbalance').nextElementSibling;
+    if (balUnit) balUnit.style.display = noBal ? 'none' : '';
+    const dayUnit = document.getElementById('gdays').nextElementSibling;
+    if (dayUnit) dayUnit.style.display = (d.daysLeft === null) ? 'none' : '';
+
     document.getElementById('gtime').textContent = d.updatedAt
       ? new Date(d.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' }) + (d.staleDays ? '（' + d.staleDays + ' 天前）' : '')
       : '—';
+
+    // 空状态：没读数时只有一句「还没有读数」，用户不知道下一步干嘛
+    const emptyCard = document.getElementById('gEmptyCard');
+    if (emptyCard) emptyCard.style.display = (d.status === 'unknown') ? 'block' : 'none';
+    const step2 = document.getElementById('gStep2');
+    if (step2) {
+      step2.innerHTML = d.canWrite
+        ? '② 填进来，<b>日期照表上那天填，别填今天</b>'
+        : '② 让舍友用舍友口令登录后填进来，<b>日期照表上那天填</b>';
+    }
+
+    // 这个数字是怎么来的 —— 访客看不懂 542 的含义，全卡在这一行
+    const thr = Number(d.threshold) || 15;
+    const meta = document.getElementById('gMetaLine');
+    if (meta) {
+      const bits = ['宿管每 7 天抄一次电表'];
+      if (d.daily) bits.push('按 ' + d.daily.toFixed(1) + ' 度/天估算');
+      if (!noBal) bits.push('余量取整到 5 度');
+      if (d.status === 'unknown') bits.push('低于 ' + thr + ' 度会微信提醒充值');
+      meta.textContent = bits.join(' · ');
+    }
+
+    // 数据过期要说后果，不能只写「X 天前」
+    const stale = document.getElementById('gStaleLine');
+    if (stale) {
+      if (d.staleDays !== null && d.staleDays !== undefined && d.staleDays >= 8) {
+        stale.style.display = 'block';
+        stale.textContent = '已 ' + d.staleDays + ' 天没更新读数，估算误差可能超过 15%，建议催管理员补录。';
+      } else {
+        stale.style.display = 'none';
+      }
+    }
+
     const b = document.getElementById('gbanner'), t = document.getElementById('gbannerText');
     b.className = 'banner';
-    if (d.status === 'unknown') { b.classList.add('b-safe'); t.textContent = '还没有读数'; }
-    else if (d.status === 'low') { b.classList.add('b-danger'); t.textContent = '余量不多了，需要充值'; }
-    else if (d.status === 'soon') { b.classList.add('b-warn'); t.textContent = '大概一周内用完'; }
-    else { b.classList.add('b-safe'); t.textContent = '目前够用'; }
+    if (d.status === 'unknown') { b.classList.add('b-safe'); t.textContent = d.canWrite ? '还没有读数，先记一次' : '还没有读数'; }
+    else if (d.status === 'low') { b.classList.add('b-danger'); t.textContent = '余量 ' + d.balance + ' 度，已低于阈值 ' + thr + ' 度 —— 该充值了'; }
+    else if (d.status === 'soon') { b.classList.add('b-warn'); t.textContent = '大约还能用 ' + d.daysLeft + ' 天，建议这周充值'; }
+    else { b.classList.add('b-safe'); t.textContent = '目前够用 · 低于 ' + thr + ' 度会提醒充值'; }
+
+    // 第一行给「数据从哪来」，权限说明已经在下面的卡片里，别重复占位
+    document.getElementById('subline').textContent = (d.room || '本宿舍') + ' · 宿管每 7 天抄一次表';
     return;
   }
 
@@ -365,6 +418,13 @@ async function refresh(pre) {
   document.getElementById('balance').textContent = estBal !== null && estBal !== undefined ? Math.round(estBal) : '—';
   document.getElementById('daily').textContent = st && st.daily ? st.daily.toFixed(1) : '—';
   document.getElementById('days').textContent = estDays ? (estDays >= 100 ? '99+' : Math.round(estDays)) : '—';
+  // 没有数值时别把「— 度」「— 天」并排摆出来
+  const balU = document.getElementById('balance').nextElementSibling;
+  if (balU) balU.style.display = (estBal === null || estBal === undefined) ? 'none' : '';
+  const dayU = document.getElementById('days').nextElementSibling;
+  if (dayU) dayU.style.display = estDays ? '' : 'none';
+  const dailyU = document.getElementById('daily').nextElementSibling;
+  if (dailyU) dailyU.style.display = (st && st.daily) ? '' : 'none';
   // 公式透出：显示推算依据，避免「这个数字哪来的」
   const fx = document.getElementById('formulaLine');
   if (fx) {
@@ -375,8 +435,10 @@ async function refresh(pre) {
       const days0 = Math.round((l0.ts - f0.ts) / 86400000);
       fx.textContent = '按 ' + f0.value.toFixed(1) + ' → ' + l0.value.toFixed(1)
         + '（' + days0 + ' 天）实测日均 ' + st.daily.toFixed(1) + ' 度/天推算';
+    } else if (rs.length === 1) {
+      fx.textContent = '只有 1 次读数，算不出日均。隔 7 天再抄一次电表录进来，就能预测断电日。';
     } else {
-      fx.textContent = '';
+      fx.textContent = '还没有读数。先去楼下电表抄一次，日期照宿管表上那天填（别填今天）；满两次就能算日均。';
     }
   }
   const el = document.getElementById('estLine');
@@ -387,8 +449,10 @@ async function refresh(pre) {
       el.textContent = '实测 ' + st.balance.toFixed(1) + ' 度（' + Math.floor(st.elapsedDays || 0) + ' 天前）'
         + (cut ? ' · 预计 ' + (cut.getMonth() + 1) + ' 月 ' + cut.getDate() + ' 日前后断电' : '')
         + ' · ' + ppl + ' 人分摊 ' + (st.daily / ppl).toFixed(1) + ' 度/人/天';
-    } else {
+    } else if (st) {
       el.textContent = '只有一次读数，无法推算；再录一次（隔几天）就能算日均。';
+    } else {
+      el.textContent = '';
     }
   }
   document.getElementById('lastRead').textContent = st ? new Date(st.lastTs).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -446,14 +510,28 @@ async function refresh(pre) {
 
   const ps = document.getElementById('pushStatus');
   if (ps) {
-    if (!S.hasToken) ps.textContent = '未填 PushPlus token，推送不会发出。';
-    else if (S.lastPush) {
+    if (S.lastPush) {
       const t = new Date(S.lastPush.at);
       ps.textContent = '上次推送：' + t.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
         + ' · ' + (S.lastPush.ok ? '成功' : '失败：' + (S.lastPush.msg || '未知'))
         + '（来源 ' + (S.lastPush.tag || 'auto') + '）';
     } else ps.textContent = '还没有推送记录。';
     if (S.serverTz) ps.textContent += ' ｜ 服务器时区 ' + S.serverTz + '，已按东八区计算';
+  }
+  // token 到底从哪来的 —— 之前只判断 data.json，环境变量配了也显示「未填」，
+  // 每次发版看到这句都会以为丢了，然后又手输一遍。
+  const ts = document.getElementById('pushTokenSrc');
+  if (ts) {
+    if (S.tokenSource === 'env') {
+      ts.textContent = 'token 来自平台环境变量 PUSH_TOKEN —— 发版不会丢，下面输入框留空即可。';
+      ts.style.color = '#0F6E56';
+    } else if (S.tokenSource === 'data') {
+      ts.textContent = 'token 存在 data.json 里 —— 重建容器可能会丢，建议改配平台环境变量 PUSH_TOKEN，一劳永逸。';
+      ts.style.color = '#8A5B0B';
+    } else {
+      ts.textContent = '没有任何 token，推送不会发出。去平台加环境变量 PUSH_TOKEN（推荐），或在下面填一次。';
+      ts.style.color = '#A32D2D';
+    }
   }
   const cu = document.getElementById('cronUrl');
   if (cu && S.cronSecret) cu.value = location.origin + '/api/cron?secret=' + S.cronSecret;
@@ -607,8 +685,10 @@ async function saveSettings() {
   const body = { room: room, pushToken: pushToken };
   if (isFinite(people) && people >= 1) body.people = people;
   if (isFinite(threshold) && threshold > 0) body.threshold = threshold;
-  await api('/api/settings', 'POST', body);
-  refresh(); toast('设置已保存');
+  const r = await api('/api/settings', 'POST', body);
+  refresh();
+  if (r && r.tokenSource === 'env' && body.pushToken) toast('已保存；推送 token 仍走环境变量 PUSH_TOKEN');
+  else toast('设置已保存');
 }
 
 // 导出走原生 fetch 拿 blob，不能复用 api()——它会把响应当 JSON 解析
@@ -651,7 +731,7 @@ async function testPush() {
   if (tok) await api('/api/settings', 'POST', { pushToken: tok });
   toast('发送中…');
   const r = await api('/api/push-test', 'POST');
-  toast(r.ok ? '已发送，去微信看' : ('失败：' + (r.msg || '未知')));
+  toast(r.ok ? ('已发送，去微信看' + (r.via === 'env' ? '（走环境变量 token）' : '')) : ('失败：' + (r.msg || '未知')));
   refresh();
 }
 
